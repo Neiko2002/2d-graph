@@ -39,7 +39,7 @@ def plot_graphs(vertices=None, graphs=None, bg_color='white', text_color='black'
     vcolors = vertices['color'] if 'color' in vertices.columns else 'black'
 
     for ax, g in zip(axes, graphs):
-        title, edges = g.value
+        title, edges = g.title, g.edges
         ax.set_facecolor(bg_color)
 
         # Draw edges grouped by color
