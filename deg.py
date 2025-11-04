@@ -15,9 +15,9 @@ def get_deg_vertices(g):
     for i in range(g.size()):
         feat = _get_feature_at_index(g, i)
         features.append({
-            'id': i,
+            'id': f"$x_{{{i + 1}}}$",
             'feature': feat,
-            'color': 'black',
+            'color': '#FFE599',
             'geometry': Point(feat[0], feat[1])
         })
     return gpd.GeoDataFrame(features)
@@ -32,7 +32,7 @@ def get_deg_edges(g):
         for j in g.get_neighbor_indices(i):
             if i < j:
                 dst_coords = _get_feature_at_index(g, j)
-                line = LineString([src_coords, dst_coords])
+                line = LineString([src_coords[:2], dst_coords[:2]])
                 dist = line.length
-                edges.append((i, j, line, dist, "black"))
+                edges.append((i, j, line, dist, 'black'))
     return gpd.GeoDataFrame(edges, columns=["source", "target", "geometry", "weight", "color"])

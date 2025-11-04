@@ -6,9 +6,22 @@ from shapely.geometry import LineString
 def _pairwise_dist(coords):
     return np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=2)
 
-def _rng_edges(coords, dist):
+def create_rng(coords):
+    """
+    Construct an undirected Relative Neighborhood Graph (RNG).
+    An edge (i, j) exists if no other point k is closer to both i and j
+    than i and j are to each other (lune condition).
+    Returns GeoDataFrame with [source, target, geometry, weight, color]
+    """
+    if isinstance(coords, gpd.GeoDataFrame):
+        coords = np.array(coords['feature'].tolist(), dtype=np.float32)
+    else:
+        coords = np.asarray(coords, dtype=np.float32)
     n = len(coords)
+
+    dist = _pairwise_dist(coords)
     edges = set()
+
     for i in range(n):
         for j in range(i+1, n):
             dij = dist[i, j]
@@ -21,28 +34,67 @@ def _rng_edges(coords, dist):
                     break
             if keep:
                 edges.add((i, j))
-    return edges
 
-def _to_adj(n, edges):
-    adj = [set() for _ in range(n)]
-    for i, j in edges:
-        adj[i].add(j)
-        adj[j].add(i)
-    return adj
+    rows = []
+    for i, j in sorted(edges):
+        dij = float(dist[i, j])
+        rows.append((i, j, LineString([coords[i,:2], coords[j,:2]]), dij, "black"))
 
-def _add_edge(i, j, edges, adj):
-    a, b = (i, j) if i < j else (j, i)
-    if (a, b) not in edges:
-        edges.add((a, b))
-        adj[i].add(j)
-        adj[j].add(i)
+    return gpd.GeoDataFrame(rows, columns=["source", "target", "geometry", "weight", "color"])
 
 def create_mrng(coords):
     """
-    Full monotonic enforcement:
-    1) start from RNG
-    2) for each ordered pair (u, v), enforce a path u->...->v where d(next,v) < d(curr,v)
-       by adding repair edges when greedy descent gets stuck
+    Construct a directed Monotonic Relative Neighborhood Graph (MRNG)
+    following Definition 5 in NSG paper.
+    Each node p has directed edges p -> q determined by:
+      1) Sort all q ≠ p by distance δ(p, q)
+      2) Always include the nearest neighbor q₀
+      3) For each remaining q, include p -> q if no already-selected r
+         satisfies δ(p, r) < δ(p, q) and δ(q, r) < δ(p, q)
+    Returns GeoDataFrame with [source, target, geometry, weight, color]
+    """
+    if isinstance(coords, gpd.GeoDataFrame):
+        coords = np.array(coords['feature'].tolist(), dtype=np.float32)
+    else:
+        coords = np.asarray(coords, dtype=np.float32)
+    n = len(coords)
+
+    dist = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=-1)
+    edges = set()
+
+    for i in range(n):
+        order = np.argsort(dist[i])
+        L = []
+        for j in order:
+            if i == j:
+                continue
+            # Check lune condition against already selected neighbors
+            skip = False
+            for r in L:
+                if dist[i, r] < dist[i, j] and dist[j, r] < dist[i, j]:
+                    skip = True
+                    break
+            if not skip:
+                edges.add((i, j))  # directed edge
+                L.append(j)
+
+    # Always include nearest neighbor edges to ensure connectivity
+    for i in range(n):
+        j = np.argmin(dist[i] + np.eye(n)[i]*1e9)
+        edges.add((i, j))
+
+    rows = []
+    for i, j in sorted(edges):
+        dij = float(dist[i, j])
+        rows.append((i, j, LineString([coords[i], coords[j]]), dij, "black"))
+
+    return gpd.GeoDataFrame(rows, columns=["source", "target", "geometry", "weight", "color"])
+
+
+def create_knn_graph(coords, k=4):
+    """
+    Create a directed k-nearest neighbor graph.
+    For each point, a directed edge is created to its k-nearest neighbors.
     Returns GeoDataFrame with [source, target, geometry, weight]
     """
     if isinstance(coords, gpd.GeoDataFrame):
@@ -52,45 +104,20 @@ def create_mrng(coords):
     n = len(coords)
     dist = _pairwise_dist(coords)
 
-    # 1) initialize with RNG
-    edges = _rng_edges(coords, dist)
-    adj = _to_adj(n, edges)
-
-    # 2) enforce monotonicity for all targets v
-    for v in range(n):
-        order = np.argsort(dist[:, v])  # optional heuristic
-        for u in order:
-            if u == v:
-                continue
-            p = u
-            seen = {p}
-            while p != v:
-                # try greedy descent along existing edges
-                neigh = [q for q in adj[p] if dist[q, v] < dist[p, v]]
-                if neigh:
-                    # pick neighbor with minimal d(q, v)
-                    q = neigh[int(np.argmin([dist[x, v] for x in neigh]))]
-                    if q in seen:  # safety against cycles
-                        break
-                    p = q
-                    seen.add(p)
-                    continue
-
-                # stuck: add a repair edge to some r closer to v
-                closer = np.where(dist[:, v] < dist[p, v])[0]
-                if closer.size == 0:
-                    break  # cannot improve
-                # pick r that is closest to p among points closer to v
-                r = closer[int(np.argmin(dist[p, closer]))]
-                _add_edge(p, r, edges, adj)
-                p = r
-                seen.add(p)
+    # For each point, find the k-nearest neighbors
+    # np.argsort returns indices that would sort the array.
+    # We skip the first one (index 0) because it's the point itself.
+    neighbors = np.argsort(dist, axis=1)[:, 1:k+1]
 
     # build GeoDataFrame
     rows = []
-    for i, j in sorted(edges):
-        dij = float(dist[i, j])
-        rows.append((i, j, LineString([coords[i], coords[j]]), dij, "black"))
+    for i in range(n):
+        for j in neighbors[i]:
+            dij = float(dist[i, j])
+            rows.append((i, j, LineString([coords[i], coords[j]]), dij, "black"))
+
+    # Sort by source, then target for consistent output
+    rows.sort()
     return gpd.GeoDataFrame(rows, columns=["source", "target", "geometry", "weight", "color"])
 
 # ------------------------------------------------------------------------------------------------
@@ -137,8 +164,7 @@ def create_knn_graph_2d(coords, k=4):
     Create k-nearest neighbor graph from 2D coordinates.
     Returns GeoDataFrame with [source, target, geometry, weight]
     """
-    knn_vertices, knn_edges = city2graph.knn_graph(coords, k=k, distance_metric="euclidean")
-    return add_source_target(knn_edges, coords)
+    return create_knn_graph(coords, k=k)
 
 def create_minimum_spanning_tree_2d(coords):
     """
