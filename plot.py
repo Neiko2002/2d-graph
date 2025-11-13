@@ -10,6 +10,30 @@ from pathlib import Path
 
 from graphs import GraphItem
 
+import matplotlib as mpl
+import matplotlib.font_manager as fm
+
+# detect LM fonts in system locations
+lm_paths = [
+    p for p in fm.findSystemFonts()
+    if "lmroman" in p.lower() or "lm" in p.lower()
+]
+
+# register fonts for this Python process
+for p in lm_paths:
+    fm.fontManager.addfont(p)
+
+# configure Matplotlib to use Latin Modern fonts
+mpl.rcParams["font.family"] = "Latin Modern Roman"
+mpl.rcParams["font.serif"]  = ["Latin Modern Roman"]
+
+# math fonts: use custom fontset with LM
+mpl.rcParams["mathtext.fontset"] = "cm"              # Computer Modern math (pdfLaTeX math)
+
+# keep text as text in SVG
+mpl.rcParams["svg.fonttype"] = "none"
+
+
 
 def plot_graphs(graphs:List[GraphItem]=None, bg_color='white', text_color='black', annotation_size=16, title_size=24, marker_size=50, border_color='black', border_padding=8, edge_width=1, max_per_row=6, save_file=None):
     """
@@ -133,12 +157,11 @@ def plot_graphs(graphs:List[GraphItem]=None, bg_color='white', text_color='black
                     xytext=(-annotation_size/2, annotation_size/1.5),
                     ha='center',
                     color=text_color,
-                    fontsize=annotation_size,
-                    fontname='Calibri'
+                    fontsize=annotation_size
                 )
 
         # Set title
-        ax.set_title(title, fontsize=title_size, fontname='Calibri', y=1.08)
+        ax.set_title(title, fontsize=title_size, y=1.08)
 
         # Add annotations below the graph
         if g.annotations:
@@ -146,13 +169,11 @@ def plot_graphs(graphs:List[GraphItem]=None, bg_color='white', text_color='black
             ax.text(0.95, 0.0, annotation_text,
                     transform=ax.transAxes,
                     fontsize=title_size * 0.8,
-                    fontname='Calibri',
                     ha='right', va='bottom',
                     linespacing=1.1)
 
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
-        ax.set_aspect('equal')
         ax.axis('off')
 
     # hide unused subplot if fewer than 8
@@ -187,7 +208,11 @@ def plot_graphs(graphs:List[GraphItem]=None, bg_color='white', text_color='black
     # Save if requested
     if save_file:
         save_path = Path(save_file)
-        fmt = (save_path.suffix.lstrip('.').lower() or 'svg') if save_path.suffix else 'svg'
+        fmt = (save_path.suffix.lstrip('.').lower() or 'pdf') if save_path.suffix else 'pdf'
+        if fmt == 'svg':
+             # Warn the user if they select SVG, as it might lose subscript fidelity
+             # in certain browsers unless fonts are installed.
+             print("Warning: Saving as SVG may result in non-selectable math characters or display errors if viewer lacks Latin Modern fonts.")
         fig.savefig(save_path, format=fmt, bbox_inches='tight')
 
     plt.show()
