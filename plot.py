@@ -3,7 +3,6 @@ from typing import List
 
 import numpy as np
 import matplotlib.pyplot as plt
-import geopandas as gpd
 from matplotlib.collections import LineCollection
 from matplotlib.patches import FancyBboxPatch
 from pathlib import Path
@@ -34,22 +33,24 @@ mpl.rcParams["mathtext.fontset"] = "cm"              # Computer Modern math (pdf
 mpl.rcParams["svg.fonttype"] = "none"
 
 
-
-def plot_graphs(graphs:List[GraphItem]=None, bg_color='white', text_color='black', annotation_size=16, title_size=24, marker_size=50, border_color='black', border_padding=8, edge_width=1, max_per_row=6, save_file=None):
+def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='black', annotation_size=16, title_size=24,
+                marker_size=50, border_color='black', border_padding_x=8, border_padding_y=8, edge_width=1, max_per_row=6, total_fig_width=24, save_file=None):
     """
     Plots vertices and/or edges from GeoDataFrames.
 
     Args:
-        graph (gpd.GeoDataFrame, optional): GeoDataFrame with 'geometry' (LineString) column.
+        graphs (List[GraphItem], optional): List of GraphItem objects to plot.
         bg_color (str): Background color for the plot.
         text_color (str): Color for the annotation and title text.
         annotation_size (int): Font size for the annotation text.
         title_size (int): Font size for the title text.
         marker_size (float): Size of the scatter plot markers.
         border_color (str): Color of the subplot border.
-        border_padding (int): Padding around the subplot border.
+        border_padding_x (int): Horizontal padding around the subplot border as a percentage of range.
+        border_padding_y (int): Vertical padding around the subplot border as a percentage of range.
         edge_width (float): Width of the edge lines.
         max_per_row (int): Maximum number of subplots per row.
+        total_fig_width (float): The total width of the output figure in inches.
         save_file (str|Path|None): output path, e.g., 'plot.svg'
 
     """
@@ -60,36 +61,38 @@ def plot_graphs(graphs:List[GraphItem]=None, bg_color='white', text_color='black
     global_min_x, global_min_y, global_max_x, global_max_y = np.inf, np.inf, -np.inf, -np.inf
     for g in graphs:
         if g.vertices is not None and not g.vertices.empty:
-            bounds = g.vertices.total_bounds  # minx, miny, maxx, maxy
+            bounds = g.vertices.total_bounds
             global_min_x = min(global_min_x, bounds[0])
             global_min_y = min(global_min_y, bounds[1])
             global_max_x = max(global_max_x, bounds[2])
             global_max_y = max(global_max_y, bounds[3])
 
-    # Determine the center and the maximum range to make the plot square
-    center_x = (global_min_x + global_max_x) / 2
-    center_y = (global_min_y + global_max_y) / 2
     range_x = global_max_x - global_min_x
     range_y = global_max_y - global_min_y
-    max_range = max(range_x, range_y)
+    if range_x == 0: range_x = 1
+    if range_y == 0: range_y = 1
 
     # Add padding to the max_range
-    padding = max_range * (border_padding / 100)
-    padded_range = max_range + 2 * padding
+    padding_x = range_x * (border_padding_x / 100)
+    padding_y = range_y * (border_padding_y / 100)
 
-    xlim = (center_x - padded_range / 2, center_x + padded_range / 2)
-    ylim = (center_y - padded_range / 2, center_y + padded_range / 2)
+    xlim = (global_min_x - padding_x, global_max_x + padding_x)
+    ylim = (global_min_y - padding_y, global_max_y + padding_y)
+
+    padded_range_x = xlim[1] - xlim[0]
+    padded_range_y = ylim[1] - ylim[0]
 
     size = len(graphs)
-    rows = max(1, math.ceil(size / max_per_row))
-    cols = math.ceil(size / rows)
+    cols = min(size, max_per_row)
+    rows = math.ceil(size / cols)
 
-    fig, axes = plt.subplots(rows, cols, figsize=(cols * 8, rows * 8))
+    fig_height = total_fig_width * (rows * padded_range_y) / (cols * padded_range_x)
+    fig, axes = plt.subplots(rows, cols, figsize=(total_fig_width, fig_height))
     axes = np.atleast_1d(axes).ravel()
 
     # Marker radius in points (s is area in points^2 for scatter circles)
     node_radius_pts = math.sqrt(marker_size / math.pi)
-    arrow_end_shrink_pts = node_radius_pts + 1.0  # small padding
+    arrow_end_shrink_pts = node_radius_pts + 1.0
 
     for ax, g in zip(axes, graphs):
         title, is_directed, vertices, edges = g.title, g.is_directed, g.vertices, g.edges
@@ -100,8 +103,8 @@ def plot_graphs(graphs:List[GraphItem]=None, bg_color='white', text_color='black
             segments_by_style = {}
             for row in edges.itertuples(index=False):
                 coords = np.asarray(row.geometry.coords)
-                color = row.color if hasattr(row, 'color') else 'black'
-                linestyle = row.linestyle if hasattr(row, 'linestyle') else 'solid'
+                color = getattr(row, 'color', 'black')
+                linestyle = getattr(row, 'linestyle', 'solid')
                 style_key = (color, linestyle)
                 segments_by_style.setdefault(style_key, []).append(coords)
 
@@ -154,7 +157,7 @@ def plot_graphs(graphs:List[GraphItem]=None, bg_color='white', text_color='black
                     row['id'],
                     (row.geometry.x, row.geometry.y),
                     textcoords="offset points",
-                    xytext=(-annotation_size/2, annotation_size/1.5),
+                    xytext=(-annotation_size / 2, annotation_size / 1.5),
                     ha='center',
                     color=text_color,
                     fontsize=annotation_size
@@ -181,7 +184,7 @@ def plot_graphs(graphs:List[GraphItem]=None, bg_color='white', text_color='black
         ax.axis('off')
 
     # Apply tight_layout first to arrange subplots
-    plt.tight_layout(h_pad=border_padding, w_pad=border_padding)
+    plt.tight_layout(h_pad=8, w_pad=8)
 
     # Now, shrink each axis and add the border
     for i, ax in enumerate(axes):
@@ -210,9 +213,10 @@ def plot_graphs(graphs:List[GraphItem]=None, bg_color='white', text_color='black
         save_path = Path(save_file)
         fmt = (save_path.suffix.lstrip('.').lower() or 'pdf') if save_path.suffix else 'pdf'
         if fmt == 'svg':
-             # Warn the user if they select SVG, as it might lose subscript fidelity
-             # in certain browsers unless fonts are installed.
-             print("Warning: Saving as SVG may result in non-selectable math characters or display errors if viewer lacks Latin Modern fonts.")
+            # Warn the user if they select SVG, as it might lose subscript fidelity
+            # in certain browsers unless fonts are installed.
+            print(
+                "Warning: Saving as SVG may result in non-selectable math characters or display errors if viewer lacks Latin Modern fonts.")
         fig.savefig(save_path, format=fmt, bbox_inches='tight')
 
     plt.show()
