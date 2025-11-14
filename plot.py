@@ -1,5 +1,5 @@
 import math
-from typing import List
+from typing import List, Literal
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -32,8 +32,15 @@ mpl.rcParams["mathtext.fontset"] = "cm"              # Computer Modern math (pdf
 # keep text as text in SVG
 mpl.rcParams["svg.fonttype"] = "none"
 
+# Define the acceptable title positions
+TitlePosition = Literal[
+    'top-left', 'top-center', 'top-right',
+    'bottom-left', 'bottom-center', 'bottom-right'
+]
 
-def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='black', annotation_size=16, title_size=24,
+
+def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='black', vertex_label_size=16, annotation_size=16,
+                title_size=24, title_position: TitlePosition = 'top-center',  # New parameter
                 marker_size=50, border_color='black', border_padding_x=8, border_padding_y=8, edge_width=1, max_per_row=6, total_fig_width=24, save_file=None):
     """
     Plots vertices and/or edges from GeoDataFrames.
@@ -42,8 +49,10 @@ def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='bl
         graphs (List[GraphItem], optional): List of GraphItem objects to plot.
         bg_color (str): Background color for the plot.
         text_color (str): Color for the annotation and title text.
+        vertex_label_size (int): ont size for the vertex labels.
         annotation_size (int): Font size for the annotation text.
         title_size (int): Font size for the title text.
+        title_position (TitlePosition): Position of the title in the subplot.
         marker_size (float): Size of the scatter plot markers.
         border_color (str): Color of the subplot border.
         border_padding_x (int): Horizontal padding around the subplot border as a percentage of range.
@@ -102,11 +111,16 @@ def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='bl
         if edges is not None:
             segments_by_style = {}
             for row in edges.itertuples(index=False):
-                coords = np.asarray(row.geometry.coords)
+                coord = np.asarray(row.geometry.coords)
                 color = getattr(row, 'color', 'black')
                 linestyle = getattr(row, 'linestyle', 'solid')
+
+                # Convert dash pattern tuple to LineCollection format: (offset, (on, off, ...))
+                if isinstance(linestyle, tuple):
+                    linestyle = (0, linestyle)
+
                 style_key = (color, linestyle)
-                segments_by_style.setdefault(style_key, []).append(coords)
+                segments_by_style.setdefault(style_key, []).append(coord)
 
             for (color, linestyle), segs in segments_by_style.items():
                 lc = LineCollection(segs, colors=color, linestyles=linestyle, linewidths=edge_width, zorder=1)
@@ -151,27 +165,49 @@ def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='bl
         )
 
         # Add vertex labels from 'id' column
-        if annotation_size > 0:
+        if vertex_label_size > 0:
             for _, row in vertices.iterrows():
                 ax.annotate(
                     row['id'],
                     (row.geometry.x, row.geometry.y),
                     textcoords="offset points",
-                    xytext=(-annotation_size / 2, annotation_size / 1.5),
+                    xytext=(-vertex_label_size / 2, vertex_label_size / 1.5),
                     ha='center',
                     color=text_color,
-                    fontsize=annotation_size
+                    fontsize=vertex_label_size
                 )
 
         # Set title
-        ax.set_title(title, fontsize=title_size, y=1.08)
+        if title:
+            pos_map = {
+                'top-left': ('left', 1.08),
+                'top-center': ('center', 1.08),
+                'top-right': ('right', 1.08),
+                'bottom-left': ('left', 0.05),
+                'bottom-center': ('center', 0.05),
+                'bottom-right': ('right', 0.05)
+            }
+
+            if title_position not in pos_map:
+                raise ValueError("title_position must be one of: "
+                                 "'top-left', 'top-center', 'top-right', "
+                                 "'bottom-left', 'bottom-center', 'bottom-right'")
+
+            title_loc, title_y = pos_map[title_position]
+            ax.set_title(
+                title,
+                fontsize=title_size,
+                color=text_color,
+                loc=title_loc, # Horizontal position based on 'ha' from original map
+                y=title_y      # Vertical position based on 'ty' from original map
+            )
 
         # Add annotations below the graph
-        if g.annotations:
+        if g.annotations and annotation_size > 0:
             annotation_text = "\n".join(g.annotations)
             ax.text(0.95, 0.0, annotation_text,
                     transform=ax.transAxes,
-                    fontsize=title_size * 0.8,
+                    fontsize=annotation_size,
                     ha='right', va='bottom',
                     linespacing=1.1)
 
@@ -184,7 +220,7 @@ def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='bl
         ax.axis('off')
 
     # Apply tight_layout first to arrange subplots
-    plt.tight_layout(h_pad=8, w_pad=8)
+    plt.tight_layout(h_pad=8, w_pad=8 if cols > 2 else 12)
 
     # Now, shrink each axis and add the border
     for i, ax in enumerate(axes):
