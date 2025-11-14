@@ -1,6 +1,6 @@
 # graphs.py
 from enum import Enum
-from typing import Iterable, List, Any
+from typing import Iterable, List, Any, Callable
 import numpy as np
 from dataclasses import dataclass, field
 import geopandas as gpd
@@ -45,6 +45,7 @@ class GraphItem:
     edges: gpd.GeoDataFrame
     graph: Any = None
     annotations: List[str] = field(default_factory=list)
+    custom_plot_render: Callable[[Any], None] = None
 
 # Friendly titles for plotting
 _TITLES = {

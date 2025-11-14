@@ -39,7 +39,7 @@ TitlePosition = Literal[
 ]
 
 
-def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='black', vertex_label_size=16, annotation_size=16,
+def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='black', vertex_border_color='black', vertex_label_size=16, annotation_size=16,
                 title_size=24, title_position: TitlePosition = 'top-center',  # New parameter
                 marker_size=50, border_color='black', border_padding_x=8, border_padding_y=8, edge_width=1, max_per_row=6, total_fig_width=24, save_file=None):
     """
@@ -49,14 +49,15 @@ def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='bl
         graphs (List[GraphItem], optional): List of GraphItem objects to plot.
         bg_color (str): Background color for the plot.
         text_color (str): Color for the annotation and title text.
+        vertex_border_color (str): Color for the vertex borders.
         vertex_label_size (int): ont size for the vertex labels.
         annotation_size (int): Font size for the annotation text.
         title_size (int): Font size for the title text.
         title_position (TitlePosition): Position of the title in the subplot.
         marker_size (float): Size of the scatter plot markers.
         border_color (str): Color of the subplot border.
-        border_padding_x (int): Horizontal padding around the subplot border as a percentage of range.
-        border_padding_y (int): Vertical padding around the subplot border as a percentage of range.
+        border_padding_x (int or [int, int]): Horizontal padding as percentage of range. Single value for both sides, or [left, right].
+        border_padding_y (int or [int, int]): Vertical padding as percentage of range. Single value for both sides, or [top, bottom].
         edge_width (float): Width of the edge lines.
         max_per_row (int): Maximum number of subplots per row.
         total_fig_width (float): The total width of the output figure in inches.
@@ -65,6 +66,17 @@ def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='bl
     """
     if not graphs:
         raise ValueError("graphs must contain at least one graph.")
+
+    # Parse padding values
+    if isinstance(border_padding_x, (list, tuple)):
+        padding_x_left, padding_x_right = border_padding_x
+    else:
+        padding_x_left = padding_x_right = border_padding_x
+
+    if isinstance(border_padding_y, (list, tuple)):
+        padding_y_bottom, padding_y_top = border_padding_y
+    else:
+        padding_y_bottom = padding_y_top = border_padding_y
 
     # Calculate the total bounds across all graphs to unify axes limits
     global_min_x, global_min_y, global_max_x, global_max_y = np.inf, np.inf, -np.inf, -np.inf
@@ -81,12 +93,14 @@ def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='bl
     if range_x == 0: range_x = 1
     if range_y == 0: range_y = 1
 
-    # Add padding to the max_range
-    padding_x = range_x * (border_padding_x / 100)
-    padding_y = range_y * (border_padding_y / 100)
+    # Add asymmetric padding
+    padding_left = range_x * (padding_x_left / 100)
+    padding_right = range_x * (padding_x_right / 100)
+    padding_bottom = range_y * (padding_y_bottom / 100)
+    padding_top = range_y * (padding_y_top / 100)
 
-    xlim = (global_min_x - padding_x, global_max_x + padding_x)
-    ylim = (global_min_y - padding_y, global_max_y + padding_y)
+    xlim = (global_min_x - padding_left, global_max_x + padding_right)
+    ylim = (global_min_y - padding_bottom, global_max_y + padding_top)
 
     padded_range_x = xlim[1] - xlim[0]
     padded_range_y = ylim[1] - ylim[0]
@@ -159,7 +173,7 @@ def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='bl
             s=marker_size,
             marker='o',
             facecolors=vcolors,
-            edgecolors=border_color,
+            edgecolors=vertex_border_color,
             linewidths=edge_width,
             zorder=2
         )
@@ -214,6 +228,10 @@ def plot_graphs(graphs: List[GraphItem] = None, bg_color='white', text_color='bl
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
         ax.axis('off')
+
+        # Call custom renderer if provided
+        if g.custom_plot_render is not None:
+            g.custom_plot_render(ax)
 
     # hide unused subplot if fewer than 8
     for ax in axes[size:]:
