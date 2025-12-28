@@ -31,7 +31,7 @@ def create_coords(coords):
 
     return gdf
 
-def create_random_coords(n=100, scale=100.0, seed=None, dims=2, distribution='uniform'):
+def create_random_coords(n=100, scale=100.0, seed=None, dims=2, distribution='uniform') -> gpd.GeoDataFrame:
     """
     Create n random coordinates in range [0, scale) as float32 and return as GeoDataFrame.
 
